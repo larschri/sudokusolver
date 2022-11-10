@@ -1,4 +1,4 @@
-package main
+package solver
 
 import (
 	"fmt"
@@ -9,12 +9,27 @@ type solver struct {
 	// contains ascii numbers (solved cells) and zero bytes (unsolved cells)
 	board [81]byte
 	// number of solved cells
-	count int
-	// bits[p][n] == true means that n is not a solution for position p
-	bits [81][9]bool
+	solvedCells int
+	// eliminated[p][n] == true means that n is not a solution for position p
+	eliminated [81][9]bool
 }
 
-func (s *solver) solve() error {
+func Solve(s string) (string, error) {
+	if len(s) != 81 {
+		return "", fmt.Errorf("illegal line length: %d", len(s))
+	}
+
+	var sl solver
+	for i, c := range s {
+		if c != '.' {
+			sl.setSolved(i, byte(c))
+		}
+	}
+
+	return sl.solve()
+}
+
+func (s *solver) solve() (string, error) {
 	for !s.solved() {
 		if s.solveNumberForCell() != 0 {
 			continue
@@ -24,34 +39,29 @@ func (s *solver) solve() error {
 		}
 		return s.search()
 	}
-	return nil
+	return string(s.board[:]), nil
 }
 
 func (s *solver) solved() bool {
-	return s.count == 81
+	return s.solvedCells == 81
 }
 
 func (s *solver) setSolved(pos int, val byte) {
 	if s.board[pos] != 0 {
 		was := s.board[pos]
 		s.board[pos] = 'X'
-		log.Panicf("%d: %c -> %c: \n%s\n", pos, was, val, prettyBoard(s.board))
+		log.Panicf("%d: %c -> %c: \n%s\n", pos, was, val, s)
 	}
 
-	s.count++
+	s.solvedCells++
 	s.board[pos] = val
 
-	for _, i := range rows.groups[rows.idxs[pos]] {
-		s.bits[i][val-'1'] = true
+	for _, i := range neighbours[pos] {
+		s.eliminated[i][val-'1'] = true
 	}
-	for _, i := range cols.groups[cols.idxs[pos]] {
-		s.bits[i][val-'1'] = true
-	}
-	for _, i := range boxes.groups[boxes.idxs[pos]] {
-		s.bits[i][val-'1'] = true
-	}
+
 	for i := 0; i < 9; i++ {
-		s.bits[pos][i] = true
+		s.eliminated[pos][i] = true
 	}
 }
 
@@ -61,7 +71,7 @@ func (s *solver) solveCellForNumber() int {
 		var alts [9][]int
 		for _, p := range group {
 			for n := 0; n < 9; n++ {
-				if !s.bits[p][n] {
+				if !s.eliminated[p][n] {
 					alts[n] = append(alts[n], p)
 				}
 			}
@@ -89,7 +99,7 @@ outer:
 		}
 
 		var a byte
-		for j, b := range s.bits[i] {
+		for j, b := range s.eliminated[i] {
 			if b {
 				continue // already eliminated
 			}
@@ -107,7 +117,7 @@ outer:
 	return res
 }
 
-func (s *solver) search() error {
+func (s *solver) search() (string, error) {
 	minAlts := 10
 	var cell int
 	for i, c := range s.board {
@@ -116,14 +126,14 @@ func (s *solver) search() error {
 		}
 
 		var alts int
-		for _, b := range s.bits[i] {
+		for _, b := range s.eliminated[i] {
 			if !b {
 				alts++
 			}
 		}
 
 		if alts == 0 {
-			return fmt.Errorf("no solution")
+			return "", fmt.Errorf("no solution")
 		}
 
 		if alts < minAlts {
@@ -136,32 +146,56 @@ func (s *solver) search() error {
 		}
 	}
 
-	var solution solver
+	var solution string
 
-	for n, b := range s.bits[cell] {
+	for n, b := range s.eliminated[cell] {
 		if b {
 			continue
 		}
 
 		var attempt solver = *s
 		attempt.setSolved(cell, byte('1'+n))
-		if err := attempt.solve(); err != nil {
+		s, err := attempt.solve()
+		if err != nil {
 			continue
 		}
 
 		// TODO: possible optimisation; disable check for muliple
 		// solutions and return here
 
-		if solution.solved() {
-			return fmt.Errorf("multiple solutions")
+		if solution != "" {
+			return "", fmt.Errorf("multiple solutions")
 		}
-		solution = attempt
+		solution = s
 	}
 
-	if !solution.solved() {
-		return fmt.Errorf("no solution")
+	if solution == "" {
+		return "", fmt.Errorf("no solution")
 	}
 
-	*s = solution
-	return nil
+	return solution, nil
+}
+
+func (s *solver) String() string {
+	board := []byte(`c c c  c c c  c c c
+c c c  c c c  c c c
+c c c  c c c  c c c
+
+c c c  c c c  c c c
+c c c  c c c  c c c
+c c c  c c c  c c c
+
+c c c  c c c  c c c
+c c c  c c c  c c c
+c c c  c c c  c c c
+`)
+	var j int
+	for i, c := range board {
+		if c == 'c' {
+			board[i] = s.board[j]
+			j++
+		}
+	}
+
+	return string(board)
 }
